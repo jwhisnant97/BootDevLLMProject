@@ -16,37 +16,46 @@ def main():
     messages = [types.Content(role="user", parts=[types.Part(text=args.user_prompt)])]
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
-    if api_key:
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY not set")
+
+    for _ in range(20):
         client = genai.Client(api_key=api_key)
         resp = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=messages,
-        config=types.GenerateContentConfig(
-            tools=[available_functions],system_instruction=system_prompt),
+            model="gemini-2.5-flash",
+            contents=messages,
+            config=types.GenerateContentConfig(
+                tools=[available_functions], system_instruction=system_prompt),
         )
-    if resp.usage_metadata is None:
-        raise RuntimeError("No usage metadata. Likely failed API request")
-    elif args.verbose:
-        print(f"User prompt: {args.user_prompt}")
-        print(f"Prompt tokens: {resp.usage_metadata.prompt_token_count}")
-        print(f"Response tokens: {resp.usage_metadata.candidates_token_count}")
-    if not resp.function_calls:
-        print("Response:")
-        print(resp.text)
-        return
-    if resp.function_calls:
-        function_results = []
-        for function_call in resp.function_calls:
-            function_call_result = call_function(function_call, args.verbose)
-            if not function_call_result.parts:
-                raise Exception("parts list is empty")
-            if not function_call_result.parts[0].function_response:
-                raise Exception("function response object cannot be None")
-            if not function_call_result.parts[0].function_response.response:
-                raise Exception("response field of function response object cannot be None")
-            function_results.append(function_call_result.parts[0])
-            if args.verbose:
-                print(f"-> {function_call_result.parts[0].function_response.response}")
+        if resp.usage_metadata is None:
+            raise RuntimeError("No usage metadata. Likely failed API request")
+        elif args.verbose:
+            print(f"User prompt: {args.user_prompt}")
+            print(f"Prompt tokens: {resp.usage_metadata.prompt_token_count}")
+            print(f"Response tokens: {resp.usage_metadata.candidates_token_count}")
+        if resp.candidates:
+            for _ in resp.candidates:
+                messages.append(_.content)
+        if not resp.function_calls:
+            print("Response:")
+            print(resp.text)
+            return
+        if resp.function_calls:
+            function_results = []
+            for function_call in resp.function_calls:
+                function_call_result = call_function(function_call, args.verbose)
+                if not function_call_result.parts:
+                    raise Exception("parts list is empty")
+                if not function_call_result.parts[0].function_response:
+                    raise Exception("function response object cannot be None")
+                if not function_call_result.parts[0].function_response.response:
+                    raise Exception("response field of function response object cannot be None")
+                function_results.append(function_call_result.parts[0])
+                if args.verbose:
+                    print(f"-> {function_call_result.parts[0].function_response.response}")
+            messages.append(types.Content(role="user", parts=function_results))
+    print("Maximum calls reached. Please narrow your query and try again.")
+    exit(1)
     
 if __name__ == "__main__":
     main()
